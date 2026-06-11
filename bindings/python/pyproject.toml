@@ -1,5 +1,5 @@
 [project]
-name = "tokenizers"
+name = "tokenizers-villm"
 requires-python = ">=3.10"
 authors = [
   { name = "Nicolas Patry", email = "patry.nicolas@protonmail.com" },
@@ -21,13 +21,13 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-keywords = ["NLP", "tokenizer", "BPE", "transformer", "deep learning"]
+keywords = ["NLP", "tokenizer", "ViLLM", "Vietnamese", "LLM"]
 dynamic = ["description", "license", "readme", "version"]
 dependencies = ["huggingface_hub>=0.16.4,<2.0"]
 
 [project.urls]
-Homepage = "https://github.com/huggingface/tokenizers"
-Source = "https://github.com/huggingface/tokenizers"
+Homepage = "https://github.com/vlinhd11/tokenizers"
+Source = "https://github.com/vlinhd11/tokenizers"
 
 
 [project.optional-dependencies]
