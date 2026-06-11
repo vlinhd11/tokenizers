@@ -76,7 +76,7 @@ impl SpTrieNode {
 }
 
 const STRIP_CHARS: &[char] = &[
-    '.', ',', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'', ' ', '\t', '\n',
+    '.', ',', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'',
 ];
 
 // ── Serialization helper ───────────────────────────────────────
@@ -277,24 +277,35 @@ impl ViLLMModel {
     }
 
     fn tokenize_en_word(&self, word: &str) -> Vec<(String, u32)> {
-        let stripped = word.trim_matches(STRIP_CHARS);
-        if stripped.is_empty() {
-            return vec![];
+        // Try exact match first (preserves case and punctuation)
+        if let Some(&id) = self.token2id.get(word) {
+            return vec![(word.to_string(), id)];
         }
-        let lower = stripped.to_lowercase();
+        // Try lowercase of exact word
+        let lower = word.to_lowercase();
         if let Some(&id) = self.token2id.get(&lower) {
-            return vec![(lower, id)];
+            return vec![(word.to_string(), id)];
         }
-        if let Some(&id) = self.token2id.get(stripped) {
-            return vec![(stripped.to_string(), id)];
+        // Try stripping trailing punctuation, then match
+        let stripped_tail = word.trim_end_matches(STRIP_CHARS);
+        if stripped_tail.len() < word.len() && !stripped_tail.is_empty() {
+            if let Some(&id) = self.token2id.get(stripped_tail) {
+                return vec![(word.to_string(), id)];
+            }
+            let lower_stripped = stripped_tail.to_lowercase();
+            if let Some(&id) = self.token2id.get(&lower_stripped) {
+                return vec![(word.to_string(), id)];
+            }
         }
-        let sp_tokens = self.tokenize_sp(stripped);
+        // Try SP subword on lowercased version (SP trie is case-sensitive, lowercase only)
+        let sp_tokens = self.tokenize_sp(&lower);
         if !sp_tokens.is_empty()
             && sp_tokens.iter().any(|(t, _)| t != &self.unk_token)
         {
             return sp_tokens;
         }
-        self.byte_fallback(stripped)
+        // Fallback: byte-fallback for characters not in vocab
+        self.byte_fallback(word)
     }
 
     fn byte_fallback(&self, text: &str) -> Vec<(String, u32)> {
@@ -309,21 +320,27 @@ impl ViLLMModel {
     // ── VI tokenization ─────────────────────────────────────
 
     fn try_split_compound(&self, word: &str) -> Vec<(String, u32)> {
-        let clean = word.trim_matches(STRIP_CHARS).to_lowercase();
-        let n = clean.len();
+        // Use original word for matching; lowercase only for lookup
+        let n = word.len();
         for i in 1..n {
-            let left = &clean[..i];
-            let right = &clean[i..];
+            // Split at byte boundaries that are also char boundaries
+            let left = &word[..i];
+            let right = &word[i..];
             if left.len() >= 2
                 && right.len() >= 2
-                && self.vi_syllables.contains(left)
-                && self.vi_syllables.contains(right)
+                && self.vi_syllables.contains(&left.to_lowercase())
+                && self.vi_syllables.contains(&right.to_lowercase())
             {
                 let mut out = Vec::with_capacity(2);
+                // Try exact match first for case preservation
                 if let Some(&id) = self.token2id.get(left) {
+                    out.push((left.to_string(), id));
+                } else if let Some(&id) = self.token2id.get(&left.to_lowercase()) {
                     out.push((left.to_string(), id));
                 }
                 if let Some(&id) = self.token2id.get(right) {
+                    out.push((right.to_string(), id));
+                } else if let Some(&id) = self.token2id.get(&right.to_lowercase()) {
                     out.push((right.to_string(), id));
                 }
                 if out.len() == 2 {
@@ -347,15 +364,23 @@ impl ViLLMModel {
     }
 
     fn tokenize_vi_word(&self, word: &str) -> Vec<(String, u32)> {
-        let stripped = word.trim_matches(STRIP_CHARS);
-        for candidate in [
-            stripped,
-            word,
-            &stripped.to_lowercase(),
-            &word.to_lowercase(),
-        ] {
-            if let Some(&id) = self.token2id.get(candidate) {
-                return vec![(candidate.to_string(), id)];
+        // Preserve original form — try exact match first
+        if let Some(&id) = self.token2id.get(word) {
+            return vec![(word.to_string(), id)];
+        }
+        let lower = word.to_lowercase();
+        if let Some(&id) = self.token2id.get(&lower) {
+            return vec![(word.to_string(), id)];
+        }
+        // Strip trailing punctuation, try match
+        let stripped = word.trim_end_matches(STRIP_CHARS);
+        if stripped.len() < word.len() && !stripped.is_empty() {
+            if let Some(&id) = self.token2id.get(stripped) {
+                return vec![(word.to_string(), id)];
+            }
+            let lower_stripped = stripped.to_lowercase();
+            if let Some(&id) = self.token2id.get(&lower_stripped) {
+                return vec![(word.to_string(), id)];
             }
         }
         let split = self.try_split_compound(word);
@@ -394,31 +419,32 @@ impl ViLLMModel {
     fn pretokenize(&self, text: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut current = String::new();
-        let mut current_is_alpha: Option<bool> = None;
+        let mut current_type: Option<&str> = None;
 
         for c in text.chars() {
             if c.is_whitespace() {
                 if !current.is_empty() {
                     result.push(std::mem::take(&mut current));
-                    current_is_alpha = None;
                 }
+                // Preserve whitespace as single-char tokens
+                result.push(c.to_string());
+                current_type = None;
                 continue;
             }
             let is_alpha = c.is_alphanumeric();
-            match current_is_alpha {
+            let tok_type = if is_alpha { "alpha" } else { "non_alpha" };
+            match current_type {
                 None => {
                     current.push(c);
-                    current_is_alpha = Some(is_alpha);
+                    current_type = Some(tok_type);
                 }
-                Some(prev) => {
-                    if is_alpha && prev {
-                        current.push(c);
-                    } else if !is_alpha && !prev && current.chars().all(|pc| pc == c) {
+                Some(t) => {
+                    if tok_type == t {
                         current.push(c);
                     } else {
                         result.push(std::mem::take(&mut current));
                         current.push(c);
-                        current_is_alpha = Some(is_alpha);
+                        current_type = Some(tok_type);
                     }
                 }
             }
@@ -604,7 +630,7 @@ impl ViLLMModel {
                         }
                     }
                 } else if let Some(&id) = self.token2id.get(seg.as_str()) {
-                    result.push(Token::new(id, seg.clone(), offset));
+                    result.push(Token::new(id, orig.clone(), offset));
                 } else {
                     let sub_tokens = self.tokenize_en_word(seg);
                     for (t, id) in &sub_tokens {
@@ -653,7 +679,13 @@ impl Model for ViLLMModel {
                 Lang::Punct => {
                     if let Some(&id) = self.token2id.get(word.as_str()) {
                         result.push(Token::new(id, word.clone(), offset));
+                    } else {
+                        // Never drop characters — use byte fallback
+                        for (t, id) in self.byte_fallback(word) {
+                            result.push(Token::new(id, t, offset));
+                        }
                     }
+                    // Punct doesn't change language state
                     i += 1;
                 }
                 Lang::Num => {
