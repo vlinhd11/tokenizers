@@ -791,7 +791,7 @@ impl ViLLMModel {
                         }
                     }
                 } else if let Some(&id) = self.token2id.get(seg.as_str()) {
-                    result.push(Token::new(id, orig.clone(), offset));
+                    result.push(Token::new(id, orig.to_string(), offset));
                 } else {
                     let sub_tokens = self.tokenize_en_word(seg);
                     for (t, id) in &sub_tokens {
