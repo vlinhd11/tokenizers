@@ -281,6 +281,10 @@ impl ViLLMModel {
         if let Some(&id) = self.token2id.get(word) {
             return vec![(word.to_string(), id)];
         }
+        // For non-lowercase words: byte fallback preserves case
+        if !word.chars().all(|c| c.is_lowercase()) {
+            return self.byte_fallback(word);
+        }
         // Try lowercase of exact word
         let lower = word.to_lowercase();
         if let Some(&id) = self.token2id.get(&lower) {
@@ -321,11 +325,13 @@ impl ViLLMModel {
 
     fn try_split_compound(&self, word: &str) -> Vec<(String, u32)> {
         // Use original word for matching; lowercase only for lookup
-        let n = word.len();
+        // Use char_indices to avoid splitting in the middle of multi-byte chars
+        let chars: Vec<(usize, char)> = word.char_indices().collect();
+        let n = chars.len();
         for i in 1..n {
-            // Split at byte boundaries that are also char boundaries
-            let left = &word[..i];
-            let right = &word[i..];
+            let split_byte = chars[i].0;
+            let left = &word[..split_byte];
+            let right = &word[split_byte..];
             if left.len() >= 2
                 && right.len() >= 2
                 && self.vi_syllables.contains(&left.to_lowercase())
@@ -416,6 +422,156 @@ impl ViLLMModel {
 
     // ── Pre-tokenization ────────────────────────────────────
 
+    fn is_combining_mark(c: char) -> bool {
+        let code = c as u32;
+        (code >= 0x0300 && code <= 0x036F)
+            || (code >= 0x0483 && code <= 0x0489)
+            || (code >= 0x0591 && code <= 0x05BD)
+            || (code >= 0x0610 && code <= 0x061A)
+            || (code >= 0x064B && code <= 0x065F)
+            || (code >= 0x0670) && (code <= 0x06D6)
+            || (code >= 0x0901 && code <= 0x0903)
+            || (code >= 0x093A && code <= 0x093C)
+            || (code >= 0x093E && code <= 0x094F)
+            || (code >= 0x0951 && code <= 0x0957)
+            || (code >= 0x0962 && code <= 0x0963)
+            || (code >= 0x0981 && code <= 0x0983)
+            || (code >= 0x09BC) && (code <= 0x09C4)
+            || (code >= 0x09E2 && code <= 0x09E3)
+            || (code >= 0x0A01 && code <= 0x0A03)
+            || (code >= 0x0A3C) && (code <= 0x0A4F)
+            || (code >= 0x0A81 && code <= 0x0A83)
+            || (code >= 0x0ABC && code <= 0x0AC5)
+            || (code >= 0x0AC7 && code <= 0x0AC9)
+            || (code >= 0x0ACB && code <= 0x0ACD)
+            || (code >= 0x0AE2 && code <= 0x0AE3)
+            || (code >= 0x0B01 && code <= 0x0B03)
+            || (code >= 0x0B3C && code <= 0x0B44)
+            || (code >= 0x0B47 && code <= 0x0B48)
+            || (code >= 0x0B4B && code <= 0x0B4D)
+            || (code >= 0x0B56 && code <= 0x0B57)
+            || (code >= 0x0B62 && code <= 0x0B63)
+            || (code >= 0x0B82) && (code <= 0x0B83)
+            || (code >= 0x0BC0 && code <= 0x0BCD)
+            || (code >= 0x0C00 && code <= 0x0C03)
+            || (code >= 0x0C3E && code <= 0x0C44)
+            || (code >= 0x0C46 && code <= 0x0C48)
+            || (code >= 0x0C4A && code <= 0x0C4D)
+            || (code >= 0x0C55 && code <= 0x0C56)
+            || (code >= 0x0C62 && code <= 0x0C63)
+            || (code >= 0x0C81 && code <= 0x0C83)
+            || (code >= 0x0CBC && code <= 0x0CC4)
+            || (code >= 0x0CC6 && code <= 0x0CC8)
+            || (code >= 0x0CCA && code <= 0x0CCD)
+            || (code >= 0x0CD5 && code <= 0x0CD6)
+            || (code >= 0x0CE2 && code <= 0x0CE3)
+            || (code >= 0x0D01 && code <= 0x0D03)
+            || (code >= 0x0D3E && code <= 0x0D44)
+            || (code >= 0x0D46 && code <= 0x0D48)
+            || (code >= 0x0D4A && code <= 0x0D4D)
+            || (code >= 0x0D62 && code <= 0x0D63)
+            || (code >= 0x0DCA) && (code <= 0x0DDF)
+            || (code >= 0x0E31) && (code <= 0x0E3A)
+            || (code >= 0x0E47 && code <= 0x0E4E)
+            || (code >= 0x0EB1 && code <= 0x0EBB)
+            || (code >= 0x0EC8 && code <= 0x0ECD)
+            || (code >= 0x0F18 && code <= 0x0F19)
+            || (code >= 0x0F35) && (code <= 0x0F39)
+            || (code >= 0x0F3E && code <= 0x0F3F)
+            || (code >= 0x0F71 && code <= 0x0F84)
+            || (code >= 0x0F86 && code <= 0x0F87)
+            || (code >= 0x0F8D && code <= 0x0FBC)
+            || (code >= 0x0FC6)
+            || (code >= 0x102B && code <= 0x103E)
+            || (code >= 0x1056 && code <= 0x1059)
+            || (code >= 0x1712 && code <= 0x1714)
+            || (code >= 0x1732 && code <= 0x1734)
+            || (code >= 0x1752 && code <= 0x1753)
+            || (code >= 0x1772 && code <= 0x1773)
+            || (code >= 0x17B4 && code <= 0x17D3)
+            || (code >= 0x17DD)
+            || (code >= 0x180B && code <= 0x180D)
+            || (code >= 0x18A9)
+            || (code >= 0x1920 && code <= 0x1938)
+            || (code >= 0x1A17 && code <= 0x1A1B)
+            || (code >= 0x1B00 && code <= 0x1B04)
+            || (code >= 0x1B34 && code <= 0x1B44)
+            || (code >= 0x1B6B && code <= 0x1B73)
+            || (code >= 0x1B80 && code <= 0x1B82)
+            || (code >= 0x1BA1 && code <= 0x1BAD)
+            || (code >= 0x1BE6 && code <= 0x1BF3)
+            || (code >= 0x1C24 && code <= 0x1C37)
+            || (code >= 0x1CD0 && code <= 0x1CD2)
+            || (code >= 0x1CD4 && code <= 0x1CE8)
+            || (code >= 0x1CED)
+            || (code >= 0x1CF2 && code <= 0x1CF4)
+            || (code >= 0x1DC0 && code <= 0x1DFF)
+            || (code >= 0x200C && code <= 0x200D)
+            || (code >= 0x20D0 && code <= 0x20FF)
+            || (code >= 0x2CEF && code <= 0x2CF1)
+            || (code >= 0x2D7F)
+            || (code >= 0x2DE0 && code <= 0x2DFF)
+            || (code >= 0xA66F && code <= 0xA672)
+            || (code >= 0xA674 && code <= 0xA67D)
+            || (code >= 0xA69E && code <= 0xA69F)
+            || (code >= 0xA802)
+            || (code >= 0xA806)
+            || (code >= 0xA80B)
+            || (code >= 0xA823 && code <= 0xA827)
+            || (code >= 0xA880 && code <= 0xA881)
+            || (code >= 0xA8B4 && code <= 0xA8C4)
+            || (code >= 0xA8E0 && code <= 0xA8F1)
+            || (code >= 0xA926 && code <= 0xA92D)
+            || (code >= 0xA947 && code <= 0xA953)
+            || (code >= 0xA980 && code <= 0xA983)
+            || (code >= 0xA9B3 && code <= 0xA9C0)
+            || (code >= 0xAAB0)
+            || (code >= 0xAAB2 && code <= 0xAAB4)
+            || (code >= 0xAAB7 && code <= 0xAAB8)
+            || (code >= 0xAABE && code <= 0xAABF)
+            || (code >= 0xAAC1)
+            || (code >= 0xAAEB && code <= 0xAAEF)
+            || (code >= 0xAAF5)
+            || (code >= 0xABE3 && code <= 0xABEA)
+            || (code >= 0xFB1E)
+            || (code >= 0xFE00 && code <= 0xFE0F)
+            || (code >= 0xFE20 && code <= 0xFE2F)
+            || (code >= 0x101FD)
+            || (code >= 0x10A01 && code <= 0x10A03)
+            || (code >= 0x10A05 && code <= 0x10A06)
+            || (code >= 0x10A0C && code <= 0x10A0F)
+            || (code >= 0x10A38 && code <= 0x10A3A)
+            || (code >= 0x10A3F)
+            || (code >= 0x11000 && code <= 0x11002)
+            || (code >= 0x11038 && code <= 0x11046)
+            || (code >= 0x11080 && code <= 0x11082)
+            || (code >= 0x110B0 && code <= 0x110BA)
+            || (code >= 0x11100 && code <= 0x11102)
+            || (code >= 0x11127 && code <= 0x11134)
+            || (code >= 0x11180 && code <= 0x11182)
+            || (code >= 0x111B3 && code <= 0x111C0)
+            || (code >= 0x1122C && code <= 0x11237)
+            || (code >= 0x1123E)
+            || (code >= 0x11301 && code <= 0x11303)
+            || (code >= 0x1133E && code <= 0x11344)
+            || (code >= 0x11347 && code <= 0x11348)
+            || (code >= 0x1134B && code <= 0x1134D)
+            || (code >= 0x11362 && code <= 0x11363)
+            || (code >= 0x11366 && code <= 0x1136C)
+            || (code >= 0x114B0 && code <= 0x114C3)
+            || (code >= 0x115AF && code <= 0x115B5)
+            || (code >= 0x115B8 && code <= 0x115C0)
+            || (code >= 0x11630 && code <= 0x11640)
+            || (code >= 0x116AB && code <= 0x116B7)
+            || (code >= 0x1D165 && code <= 0x1D169)
+            || (code >= 0x1D16D && code <= 0x1D172)
+            || (code >= 0x1D17B && code <= 0x1D182)
+            || (code >= 0x1D185 && code <= 0x1D18B)
+            || (code >= 0x1D1AA && code <= 0x1D1AD)
+            || (code >= 0x1D242 && code <= 0x1D244)
+            || (code >= 0xE0100 && code <= 0xE01EF)
+    }
+
     fn pretokenize(&self, text: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut current = String::new();
@@ -429,6 +585,11 @@ impl ViLLMModel {
                 // Preserve whitespace as single-char tokens
                 result.push(c.to_string());
                 current_type = None;
+                continue;
+            }
+            // Combining marks inherit the type of the preceding character
+            if Self::is_combining_mark(c) && current_type.is_some() {
+                current.push(c);
                 continue;
             }
             let is_alpha = c.is_alphanumeric();
