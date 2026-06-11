@@ -301,14 +301,7 @@ impl ViLLMModel {
                 return vec![(word.to_string(), id)];
             }
         }
-        // Try SP subword on lowercased version (SP trie is case-sensitive, lowercase only)
-        let sp_tokens = self.tokenize_sp(&lower);
-        if !sp_tokens.is_empty()
-            && sp_tokens.iter().any(|(t, _)| t != &self.unk_token)
-        {
-            return sp_tokens;
-        }
-        // Fallback: byte-fallback for characters not in vocab
+        // Fallback: byte-fallback preserves all text exactly (no subword splitting)
         self.byte_fallback(word)
     }
 
