@@ -16,6 +16,7 @@ use tk::decoders::fuse::Fuse;
 use tk::decoders::metaspace::{Metaspace, PrependScheme};
 use tk::decoders::sequence::Sequence;
 use tk::decoders::strip::Strip;
+use tk::decoders::villm::ViLLMDecoder;
 use tk::decoders::wordpiece::WordPiece;
 use tk::decoders::DecoderWrapper;
 use tk::normalizers::replace::Replace;
@@ -65,12 +66,22 @@ impl PyDecoder {
                 DecoderWrapper::Sequence(_) => {
                     Py::new(py, (PySequenceDecoder {}, base))?.into_any()
                 }
+                DecoderWrapper::ViLLM(_) => {
+                    Py::new(py, (PyViLLMDecoder {}, base))?.into_any()
+                }
             },
         })
     }
 }
 
 impl Decoder for PyDecoder {
+    fn decode(&self, tokens: Vec<String>) -> tk::Result<String> {
+        match &self.decoder {
+            PyDecoderWrapper::Wrapped(inner) => inner.read().unwrap().decode(tokens),
+            PyDecoderWrapper::Custom(inner) => inner.read().unwrap().decode(tokens),
+        }
+    }
+
     fn decode_chain(&self, tokens: Vec<String>) -> tk::Result<Vec<String>> {
         self.decoder.decode_chain(tokens)
     }
@@ -699,6 +710,40 @@ impl Decoder for PyDecoderWrapper {
     }
 }
 
+/// ViLLM Decoder
+///
+/// This decoder handles:
+/// - Byte tokens (``<0xNN>``) merged into decoded UTF-8 sequences
+/// - Code-switch markers removed from output
+/// - Smart spacing (no space before punctuation, after opening brackets)
+/// - ``_`` and ``▁`` replaced with spaces
+///
+/// Args:
+///     cs_vi_en (:obj:`str`):
+///         The code-switch token for Vietnamese → English transitions (to be removed).
+///
+///     cs_en_vi (:obj:`str`):
+///         The code-switch token for English → Vietnamese transitions (to be removed).
+///
+/// Example::
+///
+///     >>> from tokenizers.decoders import ViLLM
+///     >>> decoder = ViLLM(cs_vi_en="<cs_vi_en>", cs_en_vi="<cs_en_vi>")
+///
+#[pyclass(extends=PyDecoder, module = "tokenizers.decoders", name = "ViLLM")]
+pub struct PyViLLMDecoder {}
+#[pymethods]
+impl PyViLLMDecoder {
+    #[new]
+    #[pyo3(
+        signature = (cs_vi_en, cs_en_vi),
+        text_signature = "(self, cs_vi_en, cs_en_vi)"
+    )]
+    fn new(cs_vi_en: String, cs_en_vi: String) -> (Self, PyDecoder) {
+        (PyViLLMDecoder {}, ViLLMDecoder::new(cs_vi_en, cs_en_vi).into())
+    }
+}
+
 /// Decoders Module
 #[pymodule(gil_used = false)]
 pub mod decoders {
@@ -724,6 +769,8 @@ pub mod decoders {
     pub use super::PySequenceDecoder;
     #[pymodule_export]
     pub use super::PyStrip;
+    #[pymodule_export]
+    pub use super::PyViLLMDecoder;
     #[pymodule_export]
     pub use super::PyWordPieceDec;
 }

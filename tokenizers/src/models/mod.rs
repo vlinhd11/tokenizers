@@ -2,6 +2,7 @@
 
 pub mod bpe;
 pub mod unigram;
+pub mod villm;
 pub mod wordlevel;
 pub mod wordpiece;
 
@@ -13,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::models::bpe::{BpeTrainer, BPE};
 use crate::models::unigram::{Unigram, UnigramTrainer};
+use crate::models::villm::ViLLMModel;
 use crate::models::wordlevel::{WordLevel, WordLevelTrainer};
 use crate::models::wordpiece::{WordPiece, WordPieceTrainer};
 use crate::{AddedToken, Model, Result, Token, Trainer};
@@ -66,6 +68,7 @@ pub enum ModelWrapper {
     WordPiece(WordPiece),
     WordLevel(WordLevel),
     Unigram(Unigram),
+    ViLLM(ViLLMModel),
 }
 
 impl<'de> Deserialize<'de> for ModelWrapper {
@@ -86,6 +89,7 @@ impl<'de> Deserialize<'de> for ModelWrapper {
             WordPiece,
             WordLevel,
             Unigram,
+            ViLLM,
         }
 
         #[derive(Deserialize)]
@@ -104,6 +108,7 @@ impl<'de> Deserialize<'de> for ModelWrapper {
             WordPiece(WordPiece),
             WordLevel(WordLevel),
             Unigram(Unigram),
+            ViLLM(ViLLMModel),
         }
 
         let helper = ModelHelper::deserialize(deserializer)?;
@@ -121,6 +126,9 @@ impl<'de> Deserialize<'de> for ModelWrapper {
                 EnumType::Unigram => ModelWrapper::Unigram(
                     serde_json::from_value(model.rest).map_err(serde::de::Error::custom)?,
                 ),
+                EnumType::ViLLM => ModelWrapper::ViLLM(
+                    serde_json::from_value(model.rest).map_err(serde::de::Error::custom)?,
+                ),
             },
             ModelHelper::Legacy(value) => {
                 let untagged = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
@@ -129,6 +137,7 @@ impl<'de> Deserialize<'de> for ModelWrapper {
                     ModelUntagged::WordPiece(bpe) => ModelWrapper::WordPiece(bpe),
                     ModelUntagged::WordLevel(bpe) => ModelWrapper::WordLevel(bpe),
                     ModelUntagged::Unigram(bpe) => ModelWrapper::Unigram(bpe),
+                    ModelUntagged::ViLLM(v) => ModelWrapper::ViLLM(v),
                 }
             }
         })
@@ -139,6 +148,7 @@ impl_enum_from!(WordLevel, ModelWrapper, WordLevel);
 impl_enum_from!(WordPiece, ModelWrapper, WordPiece);
 impl_enum_from!(BPE, ModelWrapper, BPE);
 impl_enum_from!(Unigram, ModelWrapper, Unigram);
+impl_enum_from!(ViLLMModel, ModelWrapper, ViLLM);
 
 impl Model for ModelWrapper {
     type Trainer = TrainerWrapper;
@@ -149,6 +159,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.tokenize(tokens),
             Self::BPE(t) => t.tokenize(tokens),
             Self::Unigram(t) => t.tokenize(tokens),
+            Self::ViLLM(t) => t.tokenize(tokens),
         }
     }
 
@@ -158,6 +169,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.token_to_id(token),
             Self::BPE(t) => t.token_to_id(token),
             Self::Unigram(t) => t.token_to_id(token),
+            Self::ViLLM(t) => t.token_to_id(token),
         }
     }
 
@@ -167,6 +179,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.id_to_token(id),
             Self::BPE(t) => t.id_to_token(id),
             Self::Unigram(t) => t.id_to_token(id),
+            Self::ViLLM(t) => t.id_to_token(id),
         }
     }
 
@@ -176,6 +189,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.get_vocab(),
             Self::BPE(t) => t.get_vocab(),
             Self::Unigram(t) => t.get_vocab(),
+            Self::ViLLM(t) => t.get_vocab(),
         }
     }
 
@@ -185,6 +199,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.get_vocab_size(),
             Self::BPE(t) => t.get_vocab_size(),
             Self::Unigram(t) => t.get_vocab_size(),
+            Self::ViLLM(t) => t.get_vocab_size(),
         }
     }
 
@@ -194,6 +209,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.save(folder, name),
             Self::BPE(t) => t.save(folder, name),
             Self::Unigram(t) => t.save(folder, name),
+            Self::ViLLM(t) => t.save(folder, name),
         }
     }
 
@@ -203,6 +219,7 @@ impl Model for ModelWrapper {
             Self::WordPiece(t) => t.get_trainer().into(),
             Self::BPE(t) => t.get_trainer().into(),
             Self::Unigram(t) => t.get_trainer().into(),
+            Self::ViLLM(t) => t.get_trainer().into(),
         }
     }
 }

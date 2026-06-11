@@ -4,6 +4,7 @@ pub mod ctc;
 pub mod fuse;
 pub mod sequence;
 pub mod strip;
+pub mod villm;
 pub mod wordpiece;
 
 // Re-export these as decoders
@@ -18,6 +19,7 @@ use crate::decoders::ctc::CTC;
 use crate::decoders::fuse::Fuse;
 use crate::decoders::sequence::Sequence;
 use crate::decoders::strip::Strip;
+use crate::decoders::villm::ViLLMDecoder;
 use crate::decoders::wordpiece::WordPiece;
 use crate::normalizers::replace::Replace;
 use crate::pre_tokenizers::byte_level::ByteLevel;
@@ -37,6 +39,7 @@ pub enum DecoderWrapper {
     Fuse(Fuse),
     Strip(Strip),
     ByteFallback(ByteFallback),
+    ViLLM(ViLLMDecoder),
 }
 
 impl<'de> Deserialize<'de> for DecoderWrapper {
@@ -63,6 +66,7 @@ impl<'de> Deserialize<'de> for DecoderWrapper {
             Fuse,
             Strip,
             ByteFallback,
+            ViLLM,
         }
 
         #[derive(Deserialize)]
@@ -85,6 +89,7 @@ impl<'de> Deserialize<'de> for DecoderWrapper {
             Fuse(Fuse),
             Strip(Strip),
             ByteFallback(ByteFallback),
+            ViLLM(ViLLMDecoder),
         }
 
         let helper = DecoderHelper::deserialize(deserializer).expect("Helper");
@@ -128,6 +133,9 @@ impl<'de> Deserialize<'de> for DecoderWrapper {
                     EnumType::ByteFallback => DecoderWrapper::ByteFallback(
                         serde_json::from_value(values).map_err(serde::de::Error::custom)?,
                     ),
+                    EnumType::ViLLM => DecoderWrapper::ViLLM(
+                        serde_json::from_value(values).map_err(serde::de::Error::custom)?,
+                    ),
                 }
             }
             DecoderHelper::Legacy(value) => {
@@ -143,6 +151,7 @@ impl<'de> Deserialize<'de> for DecoderWrapper {
                     DecoderUntagged::Fuse(dec) => DecoderWrapper::Fuse(dec),
                     DecoderUntagged::Strip(dec) => DecoderWrapper::Strip(dec),
                     DecoderUntagged::ByteFallback(dec) => DecoderWrapper::ByteFallback(dec),
+                    DecoderUntagged::ViLLM(dec) => DecoderWrapper::ViLLM(dec),
                 }
             }
         })
@@ -150,6 +159,16 @@ impl<'de> Deserialize<'de> for DecoderWrapper {
 }
 
 impl Decoder for DecoderWrapper {
+    fn decode(&self, tokens: Vec<String>) -> Result<String> {
+        match self {
+            Self::ViLLM(v) => v.decode(tokens),
+            _ => {
+                let results = self.decode_chain(tokens)?;
+                Ok(results.join(""))
+            }
+        }
+    }
+
     fn decode_chain(&self, tokens: Vec<String>) -> Result<Vec<String>> {
         match self {
             Self::BPE(bpe) => bpe.decode_chain(tokens),
@@ -162,6 +181,7 @@ impl Decoder for DecoderWrapper {
             Self::ByteFallback(bf) => bf.decode_chain(tokens),
             Self::Strip(bf) => bf.decode_chain(tokens),
             Self::Fuse(bf) => bf.decode_chain(tokens),
+            Self::ViLLM(v) => v.decode_chain(tokens),
         }
     }
 }
@@ -176,6 +196,7 @@ impl_enum_from!(WordPiece, DecoderWrapper, WordPiece);
 impl_enum_from!(CTC, DecoderWrapper, CTC);
 impl_enum_from!(Sequence, DecoderWrapper, Sequence);
 impl_enum_from!(Replace, DecoderWrapper, Replace);
+impl_enum_from!(ViLLMDecoder, DecoderWrapper, ViLLM);
 
 #[cfg(test)]
 mod tests {

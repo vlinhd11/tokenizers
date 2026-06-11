@@ -17,6 +17,7 @@ use tk::pre_tokenizers::metaspace::{Metaspace, PrependScheme};
 use tk::pre_tokenizers::punctuation::Punctuation;
 use tk::pre_tokenizers::split::Split;
 use tk::pre_tokenizers::unicode_scripts::UnicodeScripts;
+use tk::pre_tokenizers::villm::ViLLMPreTokenizer;
 use tk::pre_tokenizers::whitespace::{Whitespace, WhitespaceSplit};
 use tk::pre_tokenizers::PreTokenizerWrapper;
 use tk::tokenizer::Offsets;
@@ -98,6 +99,10 @@ impl PyPreTokenizer {
                         }
                         PreTokenizerWrapper::FixedLength(_) => {
                             Py::new(py, (PyFixedLength {}, base))?
+                                .into_any()
+                        }
+                        PreTokenizerWrapper::ViLLM(_) => {
+                            Py::new(py, (PyViLLMPreTokenizer {}, base))?
                                 .into_any()
                         }
                     },
@@ -1032,6 +1037,27 @@ impl PreTokenizer for PyPreTokenizerWrapper {
     }
 }
 
+/// ViLLM PreTokenizer (passthrough)
+///
+/// This pre-tokenizer performs no splitting. The ViLLM model handles its own
+/// pre-tokenization internally.
+///
+/// Example::
+///
+///     >>> from tokenizers.pre_tokenizers import ViLLM
+///     >>> pre_tokenizer = ViLLM()
+///
+#[pyclass(extends=PyPreTokenizer, module = "tokenizers.pre_tokenizers", name = "ViLLM")]
+pub struct PyViLLMPreTokenizer {}
+#[pymethods]
+impl PyViLLMPreTokenizer {
+    #[new]
+    #[pyo3(text_signature = "(self)")]
+    fn new() -> (Self, PyPreTokenizer) {
+        (PyViLLMPreTokenizer {}, ViLLMPreTokenizer {}.into())
+    }
+}
+
 /// PreTokenizers Module
 #[pymodule(gil_used = false)]
 pub mod pre_tokenizers {
@@ -1057,6 +1083,8 @@ pub mod pre_tokenizers {
     pub use super::PySplit;
     #[pymodule_export]
     pub use super::PyUnicodeScripts;
+    #[pymodule_export]
+    pub use super::PyViLLMPreTokenizer;
     #[pymodule_export]
     pub use super::PyWhitespace;
     #[pymodule_export]

@@ -11,6 +11,7 @@ use pyo3::types::*;
 use serde::{Deserialize, Serialize};
 use tk::models::bpe::{BpeBuilder, Merges, BPE};
 use tk::models::unigram::Unigram;
+use tk::models::villm::ViLLMModel;
 use tk::models::wordlevel::WordLevel;
 use tk::models::wordpiece::{WordPiece, WordPieceBuilder};
 use tk::models::ModelWrapper;
@@ -41,6 +42,7 @@ impl PyModel {
             ModelWrapper::WordPiece(_) => Py::new(py, (PyWordPiece {}, base))?.into_any(),
             ModelWrapper::WordLevel(_) => Py::new(py, (PyWordLevel {}, base))?.into_any(),
             ModelWrapper::Unigram(_) => Py::new(py, (PyUnigram {}, base))?.into_any(),
+            ModelWrapper::ViLLM(_) => Py::new(py, (PyViLLM {}, base))?.into_any(),
         })
     }
 }
@@ -1009,6 +1011,83 @@ impl PyUnigram {
     }
 }
 
+/// An implementation of the ViLLM tokenization algorithm
+///
+/// This model handles Vietnamese (VI) and English (EN) tokenization with
+/// code-switch markers, Vietnamese compound detection via Viterbi scoring,
+/// English SentencePiece subword tokenization, and byte fallback.
+///
+/// Args:
+///     token2id (:obj:`Dict[str, int]`):
+///         The vocabulary mapping tokens to IDs.
+///
+///     unk_token (:obj:`str`):
+///         The unknown token to use for out-of-vocabulary tokens.
+///
+///     vi_syllables (:obj:`List[str]`):
+///         A list of Vietnamese syllable tokens.
+///
+///     base_forms (:obj:`List[str]`):
+///         A list of Vietnamese base form tokens.
+///
+///     vi_compounds (:obj:`Dict[str, float]`):
+///         A mapping of Vietnamese compound bigrams (joined with ``_``) to their
+///         Viterbi scores.
+///
+///     compound_unigram_score (:obj:`float`):
+///         The default unigram score for Vietnamese Viterbi compound detection.
+///
+///     sp_pieces (:obj:`List[Tuple[str, float]]`):
+///         A list of SentencePiece vocabulary items paired with their scores, used
+///         for English subword tokenization.
+///
+///     cs_vi_en (:obj:`str`):
+///         The code-switch token for Vietnamese → English transitions.
+///
+///     cs_en_vi (:obj:`str`):
+///         The code-switch token for English → Vietnamese transitions.
+///
+/// Example::
+///
+///     >>> from tokenizers.models import ViLLM
+///     >>> model = ViLLM(token2id={...}, unk_token="<unk>", ...)
+///
+#[pyclass(extends=PyModel, module = "tokenizers.models", name = "ViLLM")]
+pub struct PyViLLM {}
+
+#[pymethods]
+impl PyViLLM {
+    #[new]
+    #[pyo3(
+        signature = (token2id, unk_token, vi_syllables, base_forms, vi_compounds, compound_unigram_score, sp_pieces, cs_vi_en, cs_en_vi),
+        text_signature = "(self, token2id, unk_token, vi_syllables, base_forms, vi_compounds, compound_unigram_score, sp_pieces, cs_vi_en, cs_en_vi)"
+    )]
+    fn new(
+        token2id: HashMap<String, u32>,
+        unk_token: String,
+        vi_syllables: Vec<String>,
+        base_forms: Vec<String>,
+        vi_compounds: HashMap<String, f64>,
+        compound_unigram_score: f64,
+        sp_pieces: Vec<(String, f64)>,
+        cs_vi_en: String,
+        cs_en_vi: String,
+    ) -> PyResult<(Self, PyModel)> {
+        let model = ViLLMModel::new(
+            token2id,
+            unk_token,
+            vi_syllables,
+            base_forms,
+            vi_compounds,
+            compound_unigram_score,
+            sp_pieces,
+            cs_vi_en,
+            cs_en_vi,
+        );
+        Ok((PyViLLM {}, model.into()))
+    }
+}
+
 /// Models Module
 #[pymodule(gil_used = false)]
 pub mod models {
@@ -1018,6 +1097,8 @@ pub mod models {
     pub use super::PyModel;
     #[pymodule_export]
     pub use super::PyUnigram;
+    #[pymodule_export]
+    pub use super::PyViLLM;
     #[pymodule_export]
     pub use super::PyWordLevel;
     #[pymodule_export]

@@ -13,5 +13,6 @@ Punctuation = pre_tokenizers.Punctuation
 Sequence = pre_tokenizers.Sequence
 Split = pre_tokenizers.Split
 UnicodeScripts = pre_tokenizers.UnicodeScripts
+ViLLM = pre_tokenizers.ViLLM
 Whitespace = pre_tokenizers.Whitespace
 WhitespaceSplit = pre_tokenizers.WhitespaceSplit

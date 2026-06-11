@@ -13,3 +13,4 @@ BPEDecoder = decoders.BPEDecoder
 CTC = decoders.CTC
 Sequence = decoders.Sequence
 DecodeStream = decoders.DecodeStream
+ViLLM = decoders.ViLLM
